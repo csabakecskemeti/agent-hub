@@ -9,38 +9,61 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-# Configuration
+# Configuration - set your hub URL here or via environment variable
 AGENT_HUB_URL="${AGENT_HUB_URL:-http://localhost:8765}"
 
 echo "=== Agent Hub Installation ==="
 echo ""
+echo "Project directory: $PROJECT_DIR"
+echo "Hub URL: $AGENT_HUB_URL"
+echo ""
 
-# 1. Install Python dependencies
-echo "[1/4] Installing Python dependencies..."
-pip install -r "$PROJECT_DIR/requirements.txt" --quiet
+# 1. Create Python virtual environment and install dependencies
+echo "[1/4] Setting up Python environment..."
 
-# 2. Create MCP config for Claude Code
-echo "[2/4] Configuring MCP tools..."
-
-CLAUDE_CONFIG_DIR="$HOME/.claude"
-mkdir -p "$CLAUDE_CONFIG_DIR"
-
-# Check if settings.json exists and has mcpServers
-SETTINGS_FILE="$CLAUDE_CONFIG_DIR/settings.json"
-
-if [ -f "$SETTINGS_FILE" ]; then
-    # Backup existing config
-    cp "$SETTINGS_FILE" "$SETTINGS_FILE.backup"
-    echo "  Backed up existing settings to settings.json.backup"
+if [ ! -d "$PROJECT_DIR/venv" ]; then
+    python3 -m venv "$PROJECT_DIR/venv"
+    echo "  Created virtual environment"
 fi
 
-# Create or update MCP server config
-# Note: This creates a standalone config that needs to be merged manually
-MCP_CONFIG=$(cat <<EOF
+"$PROJECT_DIR/venv/bin/pip" install -r "$PROJECT_DIR/requirements.txt" --quiet
+echo "  Installed dependencies"
+
+# 2. Configure MCP server in ~/.claude.json
+echo ""
+echo "[2/4] Configuring MCP server..."
+
+CLAUDE_JSON="$HOME/.claude.json"
+
+if [ -f "$CLAUDE_JSON" ]; then
+    # Backup existing config
+    cp "$CLAUDE_JSON" "$CLAUDE_JSON.backup"
+    echo "  Backed up existing ~/.claude.json"
+
+    # Check if it already has mcpServers
+    if grep -q '"mcpServers"' "$CLAUDE_JSON"; then
+        echo ""
+        echo "  ~/.claude.json already has mcpServers configured."
+        echo "  Please manually add the agent-hub entry:"
+        echo ""
+        echo '  "agent-hub": {'
+        echo '    "command": "python3",'
+        echo "    \"args\": [\"$PROJECT_DIR/src/mcp_tools.py\"],"
+        echo '    "env": {'
+        echo "      \"AGENT_HUB_URL\": \"$AGENT_HUB_URL\""
+        echo '    }'
+        echo '  }'
+    else
+        # File exists but no mcpServers - need manual merge
+        echo "  Please add mcpServers section to ~/.claude.json (see below)"
+    fi
+else
+    # Create new ~/.claude.json
+    cat > "$CLAUDE_JSON" << EOF
 {
   "mcpServers": {
     "agent-hub": {
-      "command": "python",
+      "command": "python3",
       "args": ["$PROJECT_DIR/src/mcp_tools.py"],
       "env": {
         "AGENT_HUB_URL": "$AGENT_HUB_URL"
@@ -49,74 +72,86 @@ MCP_CONFIG=$(cat <<EOF
   }
 }
 EOF
-)
-
-echo "$MCP_CONFIG" > "$CLAUDE_CONFIG_DIR/agent-hub-mcp.json"
-echo "  Created $CLAUDE_CONFIG_DIR/agent-hub-mcp.json"
-echo ""
-echo "  Add this to your ~/.claude/settings.json mcpServers section:"
-echo '  "agent-hub": {'
-echo '    "command": "python",'
-echo "    \"args\": [\"$PROJECT_DIR/src/mcp_tools.py\"],"
-echo '    "env": {'
-echo "      \"AGENT_HUB_URL\": \"$AGENT_HUB_URL\""
-echo '    }'
-echo '  }'
-
-# 3. Install hook
-echo ""
-echo "[3/4] Installing message check hook..."
-
-HOOKS_DIR="$CLAUDE_CONFIG_DIR/hooks"
-mkdir -p "$HOOKS_DIR"
-
-cp "$PROJECT_DIR/scripts/check_messages_hook.sh" "$HOOKS_DIR/agent-hub-check.sh"
-chmod +x "$HOOKS_DIR/agent-hub-check.sh"
-echo "  Installed hook to $HOOKS_DIR/agent-hub-check.sh"
-echo ""
-echo "  Add this to your ~/.claude/settings.json hooks section:"
-echo '  "hooks": {'
-echo '    "PreToolUse": ['
-echo '      {'
-echo '        "matcher": "Bash",'
-echo "        \"hooks\": [\"$HOOKS_DIR/agent-hub-check.sh\"]"
-echo '      }'
-echo '    ]'
-echo '  }'
-
-# 4. Register with hub
-echo ""
-echo "[4/4] Registering with hub..."
-
-# Get agent info
-if [ -f ~/.projectz.yaml ]; then
-    AGENT_ID=$(grep "^computer_id:" ~/.projectz.yaml | cut -d: -f2 | tr -d ' ')
-    AGENT_NAME=$(grep "^computer_name:" ~/.projectz.yaml | cut -d: -f2 | tr -d ' ')
-else
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        AGENT_ID=$(ifconfig en0 | grep ether | awk '{print $2}' | tr -d ':')
-    else
-        AGENT_ID=$(cat /sys/class/net/eth0/address 2>/dev/null | tr -d ':')
-    fi
-    AGENT_NAME=$(hostname)
+    echo "  Created ~/.claude.json with MCP configuration"
 fi
 
-echo "  Agent ID: $AGENT_ID"
-echo "  Agent Name: $AGENT_NAME"
+# 3. Configure hook in ~/.claude/settings.json
+echo ""
+echo "[3/4] Configuring auto-inject hook..."
 
-# Try to register (will fail if hub not running, that's ok)
-curl -s -X POST "$AGENT_HUB_URL/agents/register" \
-    -H "Content-Type: application/json" \
-    -d "{\"id\": \"$AGENT_ID\", \"name\": \"$AGENT_NAME\"}" \
-    --connect-timeout 2 > /dev/null 2>&1 && \
-    echo "  Registered with hub" || \
-    echo "  Hub not reachable (will register when first used)"
+SETTINGS_DIR="$HOME/.claude"
+SETTINGS_FILE="$SETTINGS_DIR/settings.json"
+
+mkdir -p "$SETTINGS_DIR"
+
+# Update AGENT_HUB_URL in the hook script
+sed -i.bak "s|AGENT_HUB_URL=\"\${AGENT_HUB_URL:-http://localhost:8765}\"|AGENT_HUB_URL=\"\${AGENT_HUB_URL:-$AGENT_HUB_URL}\"|" "$PROJECT_DIR/scripts/auto_inject_hook.sh"
+rm -f "$PROJECT_DIR/scripts/auto_inject_hook.sh.bak"
+
+if [ -f "$SETTINGS_FILE" ]; then
+    cp "$SETTINGS_FILE" "$SETTINGS_FILE.backup"
+    echo "  Backed up existing ~/.claude/settings.json"
+
+    if grep -q '"hooks"' "$SETTINGS_FILE"; then
+        echo ""
+        echo "  ~/.claude/settings.json already has hooks configured."
+        echo "  Please manually add the UserPromptSubmit hook:"
+        echo ""
+        echo '  "UserPromptSubmit": ['
+        echo '    {'
+        echo '      "matcher": "",'
+        echo '      "hooks": ['
+        echo '        {'
+        echo '          "type": "command",'
+        echo "          \"command\": \"$PROJECT_DIR/scripts/auto_inject_hook.sh\","
+        echo '          "timeout": 3'
+        echo '        }'
+        echo '      ]'
+        echo '    }'
+        echo '  ]'
+    else
+        # File exists but no hooks - need manual merge
+        echo "  Please add hooks section to ~/.claude/settings.json (see below)"
+    fi
+else
+    # Create new settings.json
+    cat > "$SETTINGS_FILE" << EOF
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$PROJECT_DIR/scripts/auto_inject_hook.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+    echo "  Created ~/.claude/settings.json with hook configuration"
+fi
+
+# 4. Test hub connectivity
+echo ""
+echo "[4/4] Testing hub connectivity..."
+
+if curl -s --connect-timeout 2 "$AGENT_HUB_URL/agents" > /dev/null 2>&1; then
+    echo "  Hub is reachable at $AGENT_HUB_URL"
+else
+    echo "  Hub not reachable at $AGENT_HUB_URL"
+    echo "  Make sure the hub server is running"
+fi
 
 echo ""
 echo "=== Installation Complete ==="
 echo ""
 echo "Next steps:"
-echo "1. Start the hub server: python src/server.py --port 8765"
-echo "2. Add MCP config to ~/.claude/settings.json"
-echo "3. Restart Claude Code"
-echo "4. Try: list_agents, send_message, check_messages"
+echo "1. If running the hub locally: cd $PROJECT_DIR && ./venv/bin/python src/server.py --port 8765"
+echo "2. Restart Claude Code"
+echo "3. Test with: list agents"
+echo ""
