@@ -32,6 +32,8 @@ def init_db():
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS agents (
             id TEXT PRIMARY KEY,
+            computer_id TEXT,
+            session_id TEXT,
             name TEXT,
             ip TEXT,
             last_seen TEXT,
@@ -51,6 +53,7 @@ def init_db():
         );
 
         CREATE INDEX IF NOT EXISTS idx_messages_to ON messages(to_agent, read);
+        CREATE INDEX IF NOT EXISTS idx_agents_computer ON agents(computer_id);
     """)
     conn.commit()
     conn.close()
@@ -64,8 +67,9 @@ def get_db():
 # --- Models ---
 
 class AgentRegister(BaseModel):
-    id: str  # MAC address
-    name: str  # Computer name
+    computer_id: str  # MAC address
+    session_id: str   # Unique session identifier
+    name: str         # Display name (e.g., "Mac-Pro:claude1")
     ip: Optional[str] = None
 
 class Message(BaseModel):
@@ -74,6 +78,10 @@ class Message(BaseModel):
 
 class Reply(BaseModel):
     content: str
+
+class Broadcast(BaseModel):
+    content: str
+    exclude_self: bool = True  # Don't send to yourself by default
 
 
 # --- App ---
@@ -94,22 +102,25 @@ def register_agent(agent: AgentRegister):
     conn = get_db()
     now = datetime.utcnow().isoformat()
 
-    existing = conn.execute("SELECT * FROM agents WHERE id = ?", (agent.id,)).fetchone()
+    # Create combined agent ID: computer_id:session_id
+    agent_id = f"{agent.computer_id}:{agent.session_id}"
+
+    existing = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
 
     if existing:
         conn.execute(
             "UPDATE agents SET name = ?, ip = ?, last_seen = ? WHERE id = ?",
-            (agent.name, agent.ip, now, agent.id)
+            (agent.name, agent.ip, now, agent_id)
         )
     else:
         conn.execute(
-            "INSERT INTO agents (id, name, ip, last_seen, registered) VALUES (?, ?, ?, ?, ?)",
-            (agent.id, agent.name, agent.ip, now, now)
+            "INSERT INTO agents (id, computer_id, session_id, name, ip, last_seen, registered) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, agent.computer_id, agent.session_id, agent.name, agent.ip, now, now)
         )
 
     conn.commit()
     conn.close()
-    return {"status": "registered", "agent_id": agent.id}
+    return {"status": "registered", "agent_id": agent_id}
 
 
 @app.get("/agents")
@@ -160,9 +171,46 @@ def send_message(msg: Message, from_agent: str):
     return {"status": "sent", "message_id": msg_id, "to": msg.to}
 
 
+@app.post("/broadcast")
+def broadcast_message(msg: Broadcast, from_agent: str):
+    """Broadcast a message to all agents."""
+    conn = get_db()
+
+    # Verify sender exists
+    sender = conn.execute("SELECT * FROM agents WHERE id = ?", (from_agent,)).fetchone()
+    if not sender:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"Sender agent '{from_agent}' not registered")
+
+    # Get all agents (optionally excluding sender)
+    if msg.exclude_self:
+        agents = conn.execute("SELECT id FROM agents WHERE id != ?", (from_agent,)).fetchall()
+    else:
+        agents = conn.execute("SELECT id FROM agents").fetchall()
+
+    if not agents:
+        conn.close()
+        return {"status": "no_recipients", "message_ids": [], "recipients": 0}
+
+    now = datetime.utcnow().isoformat()
+    message_ids = []
+
+    for agent in agents:
+        cursor = conn.execute(
+            "INSERT INTO messages (from_agent, to_agent, content, timestamp) VALUES (?, ?, ?, ?)",
+            (from_agent, agent["id"], msg.content, now)
+        )
+        message_ids.append(cursor.lastrowid)
+
+    conn.commit()
+    conn.close()
+
+    return {"status": "broadcast", "message_ids": message_ids, "recipients": len(agents)}
+
+
 @app.get("/messages/{agent_id}")
 def get_messages(agent_id: str, unread_only: bool = True):
-    """Get messages for an agent."""
+    """Get messages for an agent (full agent_id = computer_id:session_id)."""
     conn = get_db()
 
     if unread_only:
@@ -182,6 +230,36 @@ def get_messages(agent_id: str, unread_only: bool = True):
             ORDER BY m.timestamp DESC
             LIMIT 50
         """, (agent_id,)).fetchall()
+
+    conn.close()
+    return [dict(m) for m in messages]
+
+
+@app.get("/messages/computer/{computer_id}")
+def get_messages_by_computer(computer_id: str, unread_only: bool = True):
+    """Get messages for all sessions on a computer (by computer_id/MAC address)."""
+    conn = get_db()
+
+    # Match messages where to_agent starts with computer_id:
+    pattern = f"{computer_id}:%"
+
+    if unread_only:
+        messages = conn.execute("""
+            SELECT m.*, a.name as from_name
+            FROM messages m
+            JOIN agents a ON m.from_agent = a.id
+            WHERE m.to_agent LIKE ? AND m.read = 0
+            ORDER BY m.timestamp ASC
+        """, (pattern,)).fetchall()
+    else:
+        messages = conn.execute("""
+            SELECT m.*, a.name as from_name
+            FROM messages m
+            JOIN agents a ON m.from_agent = a.id
+            WHERE m.to_agent LIKE ?
+            ORDER BY m.timestamp DESC
+            LIMIT 50
+        """, (pattern,)).fetchall()
 
     conn.close()
     return [dict(m) for m in messages]
