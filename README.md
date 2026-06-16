@@ -481,6 +481,52 @@ Claude: You have 2 replies:
 
 ---
 
+## Docker
+
+Run the Agent Hub server in a Docker container with one command. The database persists across restarts.
+
+### Quick Start
+
+```bash
+# Build and start in one step
+docker run -d --name agent-hub -p 8765:8765 -v hub-data:/app/data csabakecskemeti/agent-hub:latest
+```
+
+### Using docker-compose (Recommended)
+
+```bash
+# Start the server
+docker-compose up -d
+
+# View logs
+docker-compose logs -f agent-hub
+
+# Stop the server
+docker-compose down
+
+# Restart with fresh database
+docker-compose down -v && docker-compose up -d
+```
+
+### Custom Port
+
+Override the host port with the `HUB_PORT` environment variable:
+
+```bash
+HUB_PORT=9000 docker-compose up -d
+# Access at http://localhost:9000/agents
+```
+
+### Build & Push (for maintainers)
+
+```bash
+docker build -t agent-hub:latest .
+docker tag agent-hub:latest csabakecskemeti/agent-hub:latest
+docker push csabakecskemeti/agent-hub:latest
+```
+
+---
+
 ## License
 
 MIT
