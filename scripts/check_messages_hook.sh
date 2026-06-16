@@ -5,10 +5,10 @@
 # Install by adding to ~/.claude/settings.json under "hooks"
 #
 # Configuration:
-#   AGENT_HUB_URL - URL of the hub server (default: http://server-opi5p.local:8765)
+#   AGENT_HUB_URL - URL of the hub server (default: http://localhost:8765)
 #   AGENT_ID - Your agent ID (default: read from ~/.projectz.yaml)
 
-AGENT_HUB_URL="${AGENT_HUB_URL:-http://server-opi5p.local:8765}"
+AGENT_HUB_URL="${AGENT_HUB_URL:-http://localhost:8765}"
 
 # Get agent ID from projectz config
 get_agent_id() {

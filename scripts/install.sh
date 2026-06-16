@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Configuration
-AGENT_HUB_URL="${AGENT_HUB_URL:-http://server-opi5p.local:8765}"
+AGENT_HUB_URL="${AGENT_HUB_URL:-http://localhost:8765}"
 
 echo "=== Agent Hub Installation ==="
 echo ""
@@ -116,7 +116,7 @@ echo ""
 echo "=== Installation Complete ==="
 echo ""
 echo "Next steps:"
-echo "1. Start the hub on OrangePi: python src/server.py --port 8765"
+echo "1. Start the hub server: python src/server.py --port 8765"
 echo "2. Add MCP config to ~/.claude/settings.json"
 echo "3. Restart Claude Code"
 echo "4. Try: list_agents, send_message, check_messages"

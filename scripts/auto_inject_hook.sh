@@ -6,7 +6,7 @@
 #
 # Install via ~/.claude/settings.json under "hooks.UserPromptSubmit"
 
-AGENT_HUB_URL="${AGENT_HUB_URL:-http://server-opi5p.local:8765}"
+AGENT_HUB_URL="${AGENT_HUB_URL:-http://localhost:8765}"
 
 # Get computer ID (MAC address)
 get_computer_id() {

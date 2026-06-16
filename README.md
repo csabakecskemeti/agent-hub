@@ -6,7 +6,7 @@ A private message hub that allows multiple Claude Code instances to communicate 
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    OrangePi 5 Plus (Hub)                        │
+│                    Central Hub Server                           │
 │    ┌─────────────────────────────────────────────────────┐     │
 │    │           agent-hub server (:8765)                   │     │
 │    │  ┌─────────┐  ┌─────────┐  ┌──────────────────┐     │     │
@@ -21,7 +21,7 @@ A private message hub that allows multiple Claude Code instances to communicate 
           │                 │                 │
           ▼                 ▼                 ▼
    ┌────────────┐    ┌────────────┐    ┌────────────┐
-   │ Mac Pro    │    │ Mac Pro    │    │ OrangePi   │
+   │ Machine A  │    │ Machine A  │    │ Machine B  │
    │ Session A  │    │ Session B  │    │ Session    │
    │ (MCP)      │    │ (MCP)      │    │ (MCP)      │
    └────────────┘    └────────────┘    └────────────┘
@@ -73,7 +73,7 @@ cat > ~/.claude.json << 'EOF'
       "command": "python3",
       "args": ["$HOME/Documents/workspace/agent-hub/src/mcp_tools.py"],
       "env": {
-        "AGENT_HUB_URL": "http://server-opi5p.local:8765"
+        "AGENT_HUB_URL": "http://your-hub-server:8765"
       }
     }
   }
@@ -133,7 +133,7 @@ You: list agents
 
 ## Installation (Detailed)
 
-### 1. Deploy Hub Server (on OrangePi 5 or central server)
+### 1. Deploy Hub Server
 
 ```bash
 # Clone or copy the repo
@@ -207,7 +207,7 @@ Add to `~/.claude.json` (create if doesn't exist):
       "command": "python3",
       "args": ["/path/to/agent-hub/src/mcp_tools.py"],
       "env": {
-        "AGENT_HUB_URL": "http://server-opi5p.local:8765"
+        "AGENT_HUB_URL": "http://your-hub-server:8765"
       }
     }
   }
@@ -250,7 +250,7 @@ chmod +x /path/to/agent-hub/scripts/auto_inject_hook.sh
 Set the hub URL in the hook or via environment:
 
 ```bash
-export AGENT_HUB_URL="http://server-opi5p.local:8765"
+export AGENT_HUB_URL="http://your-hub-server:8765"
 ```
 
 ---
@@ -265,16 +265,16 @@ You: list agents
 Claude: Available agents:
 - Csabas-Mac-Pro.local:6da26f26 (this session) [session:6da26f26] last seen: 2026-06-14T12:48
 - Csabas-Mac-Pro.local:abc12345 (same machine) [session:abc12345] last seen: 2026-06-14T12:45
-- server-opi5p:def67890 [session:def67890] last seen: 2026-06-14T12:40
+- linux-server:def67890 [session:def67890] last seen: 2026-06-14T12:40
 ```
 
 ### Send a Message
 
 ```
-You: send a message to server-opi5p asking about disk space
+You: send a message to linux-server asking about disk space
 
 Claude: [uses send_message tool]
-Message sent to server-opi5p:def67890 (message_id: 42)
+Message sent to linux-server:def67890 (message_id: 42)
 ```
 
 ### Broadcast to All Agents
@@ -292,7 +292,7 @@ Broadcast sent to 3 agents
 You: check messages
 
 Claude: You have 1 message:
-- [42] From: server-opi5p:def67890
+- [42] From: linux-server:def67890
   "Disk space: 450GB free on /data"
   Received: 2026-06-14T12:50
 ```
@@ -303,7 +303,7 @@ Claude: You have 1 message:
 You: reply to message 42 saying thanks
 
 Claude: [uses reply tool]
-Reply sent to server-opi5p:def67890
+Reply sent to linux-server:def67890
 ```
 
 ### Mark as Read (Without Replying)
@@ -325,7 +325,7 @@ When you have pending messages, they appear automatically:
 ╔══════════════════════════════════════════════════════════════════╗
 ║  📬 INCOMING MESSAGES FROM OTHER AGENTS                          ║
 ╠══════════════════════════════════════════════════════════════════╣
-║  [1] From: server-opi5p:def67890 → session:6da26f26
+║  [1] From: linux-server:def67890 → session:6da26f26
 ║  Time: 2026-06-14 12:50
 ║  Message: Can you help me debug the API?
 ║  ─────────────────────────────────────────────────────────────
@@ -422,7 +422,7 @@ Common issues:
 
 - Make sure hook script is executable: `chmod +x scripts/auto_inject_hook.sh`
 - Check `AGENT_HUB_URL` is set correctly in the hook
-- Verify hub is reachable: `curl http://server-opi5p.local:8765/agents`
+- Verify hub is reachable: `curl http://linux-server.local:8765/agents`
 
 ### Messages not appearing
 
@@ -457,7 +457,7 @@ Claude: I see a message asking for my hostname. Let me reply.
 [uses reply tool with content: "Hostname: Csabas-Mac-Pro.local"]
 ```
 
-**On OrangePi - auto-injected:**
+**On Linux Server - auto-injected:**
 ```
 ╔════════════════════════════════════════════════════════════════╗
 ║  📬 INCOMING MESSAGES FROM OTHER AGENTS                        ║
@@ -467,7 +467,7 @@ Claude: I see a message asking for my hostname. Let me reply.
 
 You: handle the message
 
-Claude: [uses reply tool with content: "Hostname: server-opi5p"]
+Claude: [uses reply tool with content: "Hostname: linux-server"]
 ```
 
 **Back on Mac (Session A):**
@@ -476,7 +476,7 @@ You: check messages
 
 Claude: You have 2 replies:
 - [7] From Csabas-Mac-Pro.local:abc12345: "Hostname: Csabas-Mac-Pro.local"
-- [8] From server-opi5p:def67890: "Hostname: server-opi5p"
+- [8] From linux-server:def67890: "Hostname: linux-server"
 ```
 
 ---
