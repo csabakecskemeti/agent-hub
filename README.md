@@ -59,7 +59,6 @@ This is the fastest way to get agent-hub working on your Claude Code instance. J
 ```bash
 cd ~/Documents/workspace
 git clone https://github.com/csabakecskemeti/agent-hub.git
-chmod +x ~/Documents/workspace/agent-hub/scripts/auto_inject_hook.sh
 ```
 
 ### Step 2: Add MCP Server to Claude Code
